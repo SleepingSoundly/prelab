@@ -40,11 +40,15 @@ int main(int argc, char **argv) {
   /* Initialization */
 
   printf("Main thread started with thread id %lu\n", pthread_self());
-
+  // TODO maybe the sizeof should be queue_t ?? 
   memset(&queue, 0, sizeof(queue));
   pthread_mutex_init(&queue.lock, NULL);
 
+  pthread_mutex_lock(&g_num_prod_lock);
+
   g_num_prod = 1; /* there will be 1 producer thread */
+
+  pthread_mutex_unlock(&g_num_prod_lock);
 
   /* Create producer and consumer threads */
 
@@ -56,9 +60,13 @@ int main(int argc, char **argv) {
 
   printf("Producer thread started with thread id %lu\n", producer_thread);
 
-  result = pthread_detach(producer_thread);
-  if (0 != result)
-    fprintf(stderr, "Failed to detach producer thread: %s\n", strerror(result));
+  // TODO -> CANNOT DETACH FROM SOMETHING YOU EXPECT TO JOIN
+  // ORIGINAL LINE: 
+  // result = pthread_detach(producer_thread);
+  // ADJUSTED LINE: 
+  // Nothing, it should not detatch
+  //if (0 != result)
+  //  fprintf(stderr, "Failed to detach producer thread: %s\n", strerror(result));
 
   result = pthread_create(&consumer_thread, NULL, consumer_routine, &queue);
   if (0 != result) {
@@ -84,6 +92,9 @@ int main(int argc, char **argv) {
 
   pthread_mutex_destroy(&queue.lock);
   pthread_mutex_destroy(&g_num_prod_lock);
+
+  //TODO -> IS pthread_exit(NULL); Necessary? at the end? 
+  pthread_exit(NULL);
   return 0;
 }
 
@@ -136,7 +147,9 @@ void *producer_routine(void *arg) {
   }
 
   /* Decrement the number of producer threads running, then return */
+  pthread_mutex_lock(&g_num_prod_lock);
   --g_num_prod;
+  pthread_mutex_unlock(&g_num_prod_lock);
   return (void*) 0;
 }
 
@@ -152,13 +165,22 @@ void *consumer_routine(void *arg) {
   /* terminate the loop only when there are no more items in the queue
    * AND the producer threads are all done */
 
+  // I believe there's no reason for the consumer to take out the prod lock thread
+
+  //pthread_mutex_lock(&g_num_prod_lock);
+
+  // TODO-> I'm not sure why there's a producer lock, there's only one thing to check, and they don't carea bout
+  // the number of producers 
+  // additionally, we need to be able to read from this variable w/out it changing all the time
+  
   pthread_mutex_lock(&queue_p->lock);
-  pthread_mutex_lock(&g_num_prod_lock);
   while(queue_p->front != NULL || g_num_prod > 0) {
-    pthread_mutex_unlock(&g_num_prod_lock);
 
+    //pthread_mutex_unlock(&g_num_prod_lock);
+      // additionally, it's the queue lock you want to take out, so you can access data
+    
     if (queue_p->front != NULL) {
-
+      pthread_mutex_lock(&queue_p->lock);
       /* Remove the prev item from the queue */
       prev_node_p = queue_p->front;
 
@@ -180,7 +202,7 @@ void *consumer_routine(void *arg) {
       sched_yield();
     }
   }
-  pthread_mutex_unlock(&g_num_prod_lock);
+  //pthread_mutex_unlock(&g_num_prod_lock);
   pthread_mutex_unlock(&queue_p->lock);
 
   return (void*) count;
