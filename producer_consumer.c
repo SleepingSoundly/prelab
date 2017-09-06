@@ -42,12 +42,15 @@ int main(int argc, char **argv) {
   printf("Main thread started with thread id %lu\n", pthread_self());
   // TODO maybe the sizeof should be queue_t ?? 
   memset(&queue, 0, sizeof(queue));
+
   pthread_mutex_init(&queue.lock, NULL);
 
+  // TODO-> the below was not initialized
+  pthread_mutex_init(&g_num_prod_lock, NULL);
+
+
   pthread_mutex_lock(&g_num_prod_lock);
-
   g_num_prod = 1; /* there will be 1 producer thread */
-
   pthread_mutex_unlock(&g_num_prod_lock);
 
   /* Create producer and consumer threads */
@@ -95,7 +98,6 @@ int main(int argc, char **argv) {
 
   //TODO -> IS pthread_exit(NULL); Necessary? at the end? 
   pthread_exit(NULL);
-  return 0;
 }
 
 
@@ -150,7 +152,10 @@ void *producer_routine(void *arg) {
   pthread_mutex_lock(&g_num_prod_lock);
   --g_num_prod;
   pthread_mutex_unlock(&g_num_prod_lock);
-  return (void*) 0;
+
+  // all these threads should pthread_exit with end arguments to exit, not just return with an arg. 
+  pthread_exit((void*) 0);
+
 }
 
 
@@ -172,7 +177,7 @@ void *consumer_routine(void *arg) {
   // TODO-> I'm not sure why there's a producer lock, there's only one thing to check, and they don't carea bout
   // the number of producers 
   // additionally, we need to be able to read from this variable w/out it changing all the time
-  
+
   pthread_mutex_lock(&queue_p->lock);
   while(queue_p->front != NULL || g_num_prod > 0) {
 
@@ -204,6 +209,5 @@ void *consumer_routine(void *arg) {
   }
   //pthread_mutex_unlock(&g_num_prod_lock);
   pthread_mutex_unlock(&queue_p->lock);
-
-  return (void*) count;
+  pthread_exit((void*) count);
 }
