@@ -77,7 +77,8 @@ int main(int argc, char **argv) {
   result = pthread_create(&consumer_thread, NULL, consumer_routine, &queue);
   if (0 != result) {
     fprintf(stderr, "Failed to create consumer thread: %s\n", strerror(result));
-    exit(1);
+    // TODO this should be a pthread exit, since there is another thread already stared
+    pthread_exit(NULL);
   }
 
   /* Join threads, handle return values where appropriate */
@@ -111,6 +112,9 @@ int main(int argc, char **argv) {
 
   //TODO -> IS pthread_exit(NULL); Necessary? at the end? 
   printf("DEBUG: %lu main exit\n", pthread_self());
+  // This is a pthread_exit so it allows the consumer to terminate on it's own, and doesn't destroy resources that
+  // the detached consumer needs
+
   pthread_exit(NULL);
 }
 
@@ -166,7 +170,7 @@ void *producer_routine(void *arg) {
     // TODO let everybody know there's something in the queue
     pthread_cond_signal(&more);
     pthread_mutex_unlock(&queue_p->lock);
-    //sched_yield();
+    sched_yield();
   }
 
   /* Decrement the number of producer threads running, then return */
@@ -206,23 +210,22 @@ void *consumer_routine(void *arg) {
 
   // I believe there's no reason for the consumer to take out the prod lock thread
 
-  
-
-
-
   pthread_mutex_lock(&queue_p->lock);
   // wait until there's something in the queue and then
   // wake up, it will get the queue lock next
-  printf("DEBUG: %lu waiting for more signal to take the lock\n", pthread_self());
+  //printf("DEBUG: %lu waiting for more signal to take the lock\n", pthread_self());
 
-  //pthread_cond_wait(&more, &queue_p->lock);
+  while(queue_p->front != NULL);
+    pthread_cond_wait(&more, &queue_p->lock);
 
   // there's a producer lock because we need to know when it's done 
   pthread_mutex_lock(&g_num_prod_lock);
-  printf("DEBUG: have the number lock\n");
+  //printf("DEBUG: have the number lock\n");
 
+  // "rechecking the predicate" should be contingent on a wait
   while(queue_p->front != NULL || g_num_prod > 0) {
-  
+    
+
     pthread_mutex_unlock(&g_num_prod_lock);
     // unlocking this to make sure we don't block the end of the producer thread
  
@@ -250,14 +253,17 @@ void *consumer_routine(void *arg) {
       pthread_cond_signal(&more);
       pthread_mutex_unlock(&queue_p->lock);
 
-      printf("DEBUG: %lu yields\n", pthread_self());
+      //printf("DEBUG: %lu yields\n", pthread_self());
       sched_yield();
 
       // once it's done yielding, this thread should pick the locks back up
       // either way, need the locks back for the queue and the number of products
 
       pthread_mutex_lock(&queue_p->lock);
-      //pthread_cond_wait(&more, &queue_p->lock);
+      
+      while(queue_p->front != NULL);
+        pthread_cond_wait(&more, &queue_p->lock);
+
     }
 
     pthread_mutex_lock(&g_num_prod_lock);

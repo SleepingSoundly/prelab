@@ -10,3 +10,8 @@ do
 
 	sleep 5
 done
+
+
+result=$(cat ${testdir}/* | grep main | wc -l)
+
+echo "${result} tests passed for this run"

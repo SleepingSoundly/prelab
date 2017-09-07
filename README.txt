@@ -22,11 +22,23 @@ Students are not allowed to collaborate on this assignment. Each student is expe
 Questions
 
 The main function contains calls to exit() (line 66) and pthread_exit() (line 80). How will the effect of these two calls differ when they are executed?
+
+
 The main function calls pthread_join() (line 77) with the parameter thread_return. Where does the value stored in thread_return come from when the consumer_thread is joined?
+
+
 Where does the value stored in thread_return come from if the joined thread terminated by calling pthread_exit instead of finishing normally?
 On the same call to pthread_join() (line 77), what will it do if the thread being joined (consumer_thread, in this case) finishes before the main thread reaches the that line of code (line 77)?
+
+
+
 In this program, the main thread calls pthread_join() on the threads it created. Could a different thread call pthread_join() on those threads instead? Could a thread call pthread_join() on the main thread (assuming it knew the main thread's thread ID - i.e. pthread_t)?
+
+
+
 The consumer_routine function calls sched_yield() (line 180) when there are no items in the queue. Why does it call sched_yield() instead of just continuing to check the queue for an item until one arrives?
+
+
 Deliverables
 
 Answer the questions in the text box, or in an attached file (PDF or MS-Word)
