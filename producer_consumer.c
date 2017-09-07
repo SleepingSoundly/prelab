@@ -142,6 +142,7 @@ void *producer_routine(void *arg) {
   if (0 != result)
     fprintf(stderr, "Failed to detach consumer thread: %s\n", strerror(result));
 
+
   for (c = 'a'; c <= 'z'; ++c) {
 
     /* Create a new node with the prev letter */
@@ -150,9 +151,14 @@ void *producer_routine(void *arg) {
     new_node_p->next = NULL;
 
     /* Add the node to the queue */
-    pthread_mutex_lock(&queue_p->lock);
-    //pthread_cond_wait(&more, &queue_p->lock);
 
+    pthread_mutex_lock(&queue_p->lock);
+    while(queue_p->front != NULL){
+      printf("Producer waiting for queue\n");
+      pthread_cond_wait(&more, &queue_p->lock);
+    }
+
+    printf("PRODUCING\n");
     if (queue_p->back == NULL) {
       assert(queue_p->front == NULL);
       new_node_p->prev = NULL;
@@ -168,6 +174,7 @@ void *producer_routine(void *arg) {
     }
 
     // TODO let everybody know there's something in the queue
+    printf("MORE\n");
     pthread_cond_signal(&more);
     pthread_mutex_unlock(&queue_p->lock);
     sched_yield();
@@ -213,14 +220,16 @@ void *consumer_routine(void *arg) {
   pthread_mutex_lock(&queue_p->lock);
   // wait until there's something in the queue and then
   // wake up, it will get the queue lock next
-  //printf("DEBUG: %lu waiting for more signal to take the lock\n", pthread_self());
+ 
 
-  while(queue_p->front != NULL);
+  while(queue_p->front == NULL){
+    printf("DEBUG: %lu waiting for more signal to take the lock\n", pthread_self());
     pthread_cond_wait(&more, &queue_p->lock);
+  }
 
   // there's a producer lock because we need to know when it's done 
   pthread_mutex_lock(&g_num_prod_lock);
-  //printf("DEBUG: have the number lock\n");
+  printf("DEBUG: have the number lock\n");
 
   // "rechecking the predicate" should be contingent on a wait
   while(queue_p->front != NULL || g_num_prod > 0) {
@@ -240,6 +249,7 @@ void *consumer_routine(void *arg) {
         queue_p->front->next->prev = NULL;
 
       queue_p->front = queue_p->front->next;
+      pthread_cond_signal(&more);
       pthread_mutex_unlock(&queue_p->lock);
 
       /* Print the character, and increment the character count */
@@ -260,9 +270,11 @@ void *consumer_routine(void *arg) {
       // either way, need the locks back for the queue and the number of products
 
       pthread_mutex_lock(&queue_p->lock);
-      
-      while(queue_p->front != NULL);
+
+      while(queue_p->front == NULL){
+        printf("DEBUG: %lu waiting for more signal to take the lock\n", pthread_self());
         pthread_cond_wait(&more, &queue_p->lock);
+      }
 
     }
 
