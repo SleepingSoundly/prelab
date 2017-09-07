@@ -17,6 +17,7 @@ typedef struct {
   struct queue_node_s *front;
   struct queue_node_s *back;
   pthread_mutex_t lock;
+  // TODO need a conditional variable here
 } queue_t;
 
 
@@ -29,6 +30,8 @@ void *consumer_routine(void *arg);
 long g_num_prod; /* number of producer threads */
 pthread_mutex_t g_num_prod_lock;
 
+// conditional variable to signal that the queue is available
+pthread_cond_t more = PTHREAD_COND_INITIALIZER;
 
 /* Main - entry point */
 int main(int argc, char **argv) {
@@ -79,24 +82,35 @@ int main(int argc, char **argv) {
 
   /* Join threads, handle return values where appropriate */
 
-  result = pthread_join(producer_thread, NULL);
+  result = pthread_join(producer_thread, &thread_return);
   if (0 != result) {
     fprintf(stderr, "Failed to join producer thread: %s\n", strerror(result));
     pthread_exit(NULL);
   }
+  else
+    printf("Producer is dead\n");
 
   result = pthread_join(consumer_thread, &thread_return);
   if (0 != result) {
     fprintf(stderr, "Failed to join consumer thread: %s\n", strerror(result));
     pthread_exit(NULL);
   }
-  printf("\nPrinted %lu characters.\n", *(long*)thread_return);
-  free(thread_return);
+  else
+    printf("Consumer is dead\n");
+
+  // TODO thread return was a *(long *)thread_return, when it's printed it should just be cast
+  printf("\nFirst Thread Printed %lu characters.\n", (long)thread_return);
+
+  //free(thread_return);
+
+  pthread_cond_destroy(&more);
 
   pthread_mutex_destroy(&queue.lock);
+
   pthread_mutex_destroy(&g_num_prod_lock);
 
   //TODO -> IS pthread_exit(NULL); Necessary? at the end? 
+  printf("DEBUG: %lu main exit\n", pthread_self());
   pthread_exit(NULL);
 }
 
@@ -110,12 +124,15 @@ void *producer_routine(void *arg) {
   pthread_t consumer_thread;
   int result = 0;
   char c;
+  void *thread_return = NULL;
 
   result = pthread_create(&consumer_thread, NULL, consumer_routine, queue_p);
   if (0 != result) {
-    fprintf(stderr, "Failed to create consumer thread: %s\n", strerror(result));
+   fprintf(stderr, "Failed to create consumer thread: %s\n", strerror(result));
     exit(1);
   }
+  else
+    printf("DEBUG: created consumer from producer\n");
 
   result = pthread_detach(consumer_thread);
   if (0 != result)
@@ -130,6 +147,8 @@ void *producer_routine(void *arg) {
 
     /* Add the node to the queue */
     pthread_mutex_lock(&queue_p->lock);
+    //pthread_cond_wait(&more, &queue_p->lock);
+
     if (queue_p->back == NULL) {
       assert(queue_p->front == NULL);
       new_node_p->prev = NULL;
@@ -143,9 +162,11 @@ void *producer_routine(void *arg) {
       queue_p->back->next = new_node_p;
       queue_p->back = new_node_p;
     }
-    pthread_mutex_unlock(&queue_p->lock);
 
-    sched_yield();
+    // TODO let everybody know there's something in the queue
+    pthread_cond_signal(&more);
+    pthread_mutex_unlock(&queue_p->lock);
+    //sched_yield();
   }
 
   /* Decrement the number of producer threads running, then return */
@@ -153,7 +174,20 @@ void *producer_routine(void *arg) {
   --g_num_prod;
   pthread_mutex_unlock(&g_num_prod_lock);
 
-  // all these threads should pthread_exit with end arguments to exit, not just return with an arg. 
+  //printf("DEBUG: DONE WITH PRODUCING\n");
+
+  // TODO-> Consumer thread probably finished before this one would finish, would try to take out a destroyed lock
+
+  //result = pthread_join(consumer_thread, &thread_return);
+  //if (0 != result) {
+  //  fprintf(stderr, "Failed to join consumer thread: %s\n", strerror(result));
+  //  pthread_exit(NULL);
+  //}
+  //else
+  // printf("Producer's consumer is dead\n");
+
+  printf("DEBUG: %lu EXIT\n", pthread_self());
+  // TODO all these threads should pthread_exit with end arguments to exit, not just return with an arg. 
   pthread_exit((void*) 0);
 
 }
@@ -172,20 +206,28 @@ void *consumer_routine(void *arg) {
 
   // I believe there's no reason for the consumer to take out the prod lock thread
 
-  //pthread_mutex_lock(&g_num_prod_lock);
+  
 
-  // TODO-> I'm not sure why there's a producer lock, there's only one thing to check, and they don't carea bout
-  // the number of producers 
-  // additionally, we need to be able to read from this variable w/out it changing all the time
+
 
   pthread_mutex_lock(&queue_p->lock);
-  while(queue_p->front != NULL || g_num_prod > 0) {
+  // wait until there's something in the queue and then
+  // wake up, it will get the queue lock next
+  printf("DEBUG: %lu waiting for more signal to take the lock\n", pthread_self());
 
-    //pthread_mutex_unlock(&g_num_prod_lock);
-      // additionally, it's the queue lock you want to take out, so you can access data
-    
-    if (queue_p->front != NULL) {
-      pthread_mutex_lock(&queue_p->lock);
+  //pthread_cond_wait(&more, &queue_p->lock);
+
+  // there's a producer lock because we need to know when it's done 
+  pthread_mutex_lock(&g_num_prod_lock);
+  printf("DEBUG: have the number lock\n");
+
+  while(queue_p->front != NULL || g_num_prod > 0) {
+  
+    pthread_mutex_unlock(&g_num_prod_lock);
+    // unlocking this to make sure we don't block the end of the producer thread
+ 
+    if (queue_p->front != NULL) {      
+      
       /* Remove the prev item from the queue */
       prev_node_p = queue_p->front;
 
@@ -198,16 +240,39 @@ void *consumer_routine(void *arg) {
       pthread_mutex_unlock(&queue_p->lock);
 
       /* Print the character, and increment the character count */
-      printf("%c", prev_node_p->c);
+      printf("%lu: %c\n", pthread_self(), prev_node_p->c);
       free(prev_node_p);
       ++count;
+
     }
     else { /* Queue is empty, so let some other thread run */
+
+      pthread_cond_signal(&more);
       pthread_mutex_unlock(&queue_p->lock);
+
+      printf("DEBUG: %lu yields\n", pthread_self());
       sched_yield();
+
+      // once it's done yielding, this thread should pick the locks back up
+      // either way, need the locks back for the queue and the number of products
+
+      pthread_mutex_lock(&queue_p->lock);
+      //pthread_cond_wait(&more, &queue_p->lock);
     }
+
+    pthread_mutex_lock(&g_num_prod_lock);
+
   }
-  //pthread_mutex_unlock(&g_num_prod_lock);
+
+
+  pthread_mutex_unlock(&g_num_prod_lock);
+
+  pthread_cond_signal(&more);
   pthread_mutex_unlock(&queue_p->lock);
+  // signal any thread waiting for more to wake up and find
+  // that there isn't anything left to consume
+
+
+  printf("DEBUG: %lu EXIT\n", pthread_self());
   pthread_exit((void*) count);
 }
