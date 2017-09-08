@@ -159,7 +159,7 @@ void *producer_routine(void *arg) {
     //  pthread_cond_wait(&more, &queue_p->lock);
     //}
 
-    printf("PRODUCING\n");
+    //printf("PRODUCING\n");
     if (queue_p->back == NULL) {
       assert(queue_p->front == NULL);
       new_node_p->prev = NULL;
@@ -175,7 +175,7 @@ void *producer_routine(void *arg) {
     }
 
     // TODO let everybody know there's something in the queue
-    printf("MORE\n");
+    //printf("MORE\n");
     pthread_cond_signal(&more);
     pthread_mutex_unlock(&queue_p->lock);
     sched_yield();
@@ -234,7 +234,7 @@ void *consumer_routine(void *arg) {
   // eat everything
   while(queue_p->front == NULL && g_num_prod > 0){
     pthread_mutex_unlock(&g_num_prod_lock);
-    printf("DEBUG: %lu waiting for more signal to take the lock\n", pthread_self());
+    //printf("DEBUG: %lu waiting for more signal to take the lock\n", pthread_self());
     pthread_cond_wait(&more, &queue_p->lock);
     pthread_mutex_lock(&g_num_prod_lock);
   }
@@ -242,7 +242,7 @@ void *consumer_routine(void *arg) {
 
   // there's a producer lock because we need to know when it's done 
   //pthread_mutex_lock(&g_num_prod_lock);
-  printf("DEBUG: have the number lock\n");
+  //printf("DEBUG: have the number lock\n");
 
   // "rechecking the predicate" should be contingent on a wait
   while(queue_p->front != NULL || g_num_prod > 0) {
@@ -276,7 +276,7 @@ void *consumer_routine(void *arg) {
       pthread_cond_signal(&more);
       pthread_mutex_unlock(&queue_p->lock);
 
-      printf("DEBUG: %lu yields\n", pthread_self());
+      //printf("DEBUG: %lu yields\n", pthread_self());
       sched_yield();
 
       // once it's done yielding, this thread should pick the locks back up
