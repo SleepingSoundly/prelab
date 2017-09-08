@@ -30,13 +30,14 @@ The main function contains calls to exit() (line 66) and pthread_exit() (line 80
 
 
 The main function calls pthread_join() (line 77) with the parameter thread_return. Where does the value stored in thread_return come from when the consumer_thread is joined?
-	The value stored in thread_return is assigned by the exit function, and is generally a "void *", so pthread exit will place the return value in
-	that address. 
+	The value stored in thread_return is assigned by the exit function to a field within the p_thread type structure for the thread we're exiting from. That structure is keyed to a PID, 
+	so we will be able to find it that way (or if the process asking for the join is the parent by using the variable), and pull out the return value. 
 
 
 Where does the value stored in thread_return come from if the joined thread terminated by calling pthread_exit instead of finishing normally?
 On the same call to pthread_join() (line 77), what will it do if the thread being joined (consumer_thread, in this case) finishes before the main thread reaches the that line of code (line 77)?
-
+	Because the value is placed in a thread structure created elsewhere, that structure will still contain the return value of that thread. Therefor, when the code reaches the end,
+	if consumer has already finished, that value will be sitting within the structure waiting. 
 
 
 In this program, the main thread calls pthread_join() on the threads it created. Could a different thread call pthread_join() on those threads instead? Could a thread call pthread_join() on the main thread (assuming it knew the main thread's thread ID - i.e. pthread_t)?
