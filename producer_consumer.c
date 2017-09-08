@@ -114,7 +114,6 @@ int main(int argc, char **argv) {
   printf("DEBUG: %lu main exit\n", pthread_self());
   // This is a pthread_exit so it allows the consumer to terminate on it's own, and doesn't destroy resources that
   // the detached consumer needs
-
   pthread_exit(NULL);
 }
 
@@ -153,10 +152,10 @@ void *producer_routine(void *arg) {
     /* Add the node to the queue */
 
     pthread_mutex_lock(&queue_p->lock);
-    while(queue_p->front != NULL){
-      printf("Producer waiting for queue\n");
-      pthread_cond_wait(&more, &queue_p->lock);
-    }
+    //while(queue_p->front != NULL){
+    //  printf("Producer waiting for queue\n");
+    //  pthread_cond_wait(&more, &queue_p->lock);
+    //}
 
     printf("PRODUCING\n");
     if (queue_p->back == NULL) {
@@ -263,7 +262,7 @@ void *consumer_routine(void *arg) {
       pthread_cond_signal(&more);
       pthread_mutex_unlock(&queue_p->lock);
 
-      //printf("DEBUG: %lu yields\n", pthread_self());
+      printf("DEBUG: %lu yields\n", pthread_self());
       sched_yield();
 
       // once it's done yielding, this thread should pick the locks back up
@@ -272,7 +271,7 @@ void *consumer_routine(void *arg) {
       pthread_mutex_lock(&queue_p->lock);
 
       while(queue_p->front == NULL){
-        printf("DEBUG: %lu waiting for more signal to take the lock\n", pthread_self());
+        printf("DEBUG: %lu waiting for MORE\n", pthread_self());
         pthread_cond_wait(&more, &queue_p->lock);
       }
 
