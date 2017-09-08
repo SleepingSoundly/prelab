@@ -1,3 +1,21 @@
+/*
+ *  Pre-lab Summary:
+ *      There are five bugs here, and a couple of other small things I fixed on the side. 
+ *
+ *        1. There needed to be a conditional variable on the queue. The producer/consumer model isn't very affective without one
+ *            because the consumers need to know when to consume, not just when the lock is free. A conditional called "More" was
+ *            added below
+ *        2. The producer thread was detached but the code expected it to join back. I chose to remove the pthread_detatch function
+ *        3. The use of g_num_prod needed to be locked in the producor thread (the -- operation), because that's used as a predicate
+ *            to the use of the consumer thread
+ *        4. The Consumer needed to use pthread_exit, not return. main was expecting the thread to rejoin with a return variable. 
+ *        5. There was a bad pointer de-reference on the thread_return variable that was causing aborts and segmentation faults
+ *           The print statement was fixed and the "free" was removed because it wasn't necessary. 
+ *
+ *  Note-> There was some extra code added to make sure all these bugs (particularly the conceptual bugs) were fixed. 
+ *          Bug fixed are denoted by "// " comments, as to make them stick out against the original code. 
+ */
+
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,7 +35,6 @@ typedef struct {
   struct queue_node_s *front;
   struct queue_node_s *back;
   pthread_mutex_t lock;
-  // TODO need a conditional variable here
 } queue_t;
 
 
@@ -30,7 +47,12 @@ void *consumer_routine(void *arg);
 long g_num_prod; /* number of producer threads */
 pthread_mutex_t g_num_prod_lock;
 
-// conditional variable to signal that the queue is available
+
+// BUG: "needs a conditional"
+// this whole model needs a conditional variable to tell the consumers when it's ok to
+// begin consuming. It's marked all over the code where "more" is used, but documented here
+
+// conditional variable to signal that the queue is available 
 pthread_cond_t more = PTHREAD_COND_INITIALIZER;
 
 /* Main - entry point */
@@ -48,7 +70,7 @@ int main(int argc, char **argv) {
 
   pthread_mutex_init(&queue.lock, NULL);
 
-  // TODO-> the below was not initialized
+  // BUG: the below was not initialized
   pthread_mutex_init(&g_num_prod_lock, NULL);
 
 
@@ -101,21 +123,25 @@ int main(int argc, char **argv) {
   else
     printf("Consumer is dead\n");
 
-  // TODO thread return was a *(long *)thread_return, when it's printed it should just be cast
+  // BUG: 
+  // Thread return was a *(long *)thread_return, when it's printed it should just be cast
+  // this would cause an aborted process after the threads finished and we returned here
   printf("\nFirst Thread Printed %lu characters.\n", (long)thread_return);
 
-  //free(thread_return);
+  // BUG:
+  // additionally, the mishandling of thread_return extended to free-ing this variable
+  // it would also cause an aborted main
+  // -----> free(thread_return);
 
 
   pthread_cond_destroy(&more);
   pthread_mutex_destroy(&queue.lock);
   pthread_mutex_destroy(&g_num_prod_lock);
 
-  //TODO -> IS pthread_exit(NULL); Necessary? at the end? 
   printf("DEBUG: %lu main exit\n", pthread_self());
 
-  // This is a pthread_exit so it allows the consumer to terminate on it's own, and doesn't destroy resources that
-  // the detached consumer needs
+  // This wasn't necessariliy a bug, but it's better practice to call pthread_exit in these cases
+  // to make sure that we don't destroy resources that are still in use. it will call exit() on it's own
   pthread_exit(NULL);
 }
 
@@ -139,10 +165,6 @@ void *producer_routine(void *arg) {
   else
     printf("DEBUG: created consumer from producer\n");
 
-  //result = pthread_detach(consumer_thread);
-  //if (0 != result)
-  //  fprintf(stderr, "Failed to detach consumer thread: %s\n", strerror(result));
-
 
   for (c = 'a'; c <= 'z'; ++c) {
 
@@ -154,12 +176,7 @@ void *producer_routine(void *arg) {
     /* Add the node to the queue */
 
     pthread_mutex_lock(&queue_p->lock);
-    //while(queue_p->front != NULL){
-    //  printf("Producer waiting for queue\n");
-    //  pthread_cond_wait(&more, &queue_p->lock);
-    //}
 
-    //printf("PRODUCING\n");
     if (queue_p->back == NULL) {
       assert(queue_p->front == NULL);
       new_node_p->prev = NULL;
@@ -174,8 +191,7 @@ void *producer_routine(void *arg) {
       queue_p->back = new_node_p;
     }
 
-    // TODO let everybody know there's something in the queue
-    //printf("MORE\n");
+    // Part of the overall "needs a conditional" bug
     pthread_cond_signal(&more);
     pthread_mutex_unlock(&queue_p->lock);
     sched_yield();
@@ -186,18 +202,10 @@ void *producer_routine(void *arg) {
   --g_num_prod;
   pthread_mutex_unlock(&g_num_prod_lock);
 
-  //printf("DEBUG: DONE WITH PRODUCING\n");
-
-  // TODO-> Consumer thread probably finished before this one would finish, would try to take out a destroyed lock
-
-  //result = pthread_join(consumer_thread, &thread_return);
-  //if (0 != result) {
-  //  fprintf(stderr, "Failed to join consumer thread: %s\n", strerror(result));
-  //  pthread_exit(NULL);
-  //}
-  //else
-  // printf("Producer's consumer is dead\n");
-  // keeping the create/cancel, because it maintains controllability from the parent process
+  // BUG:
+  // the thread created by this process needs to be cancelled, otherwise you end up in a lost wait situation
+  // this is part of the "needs a conditional" bug, as it is contingent on a wait caused by the signal
+  // used for the conditional
   result = pthread_cancel(consumer_thread);
   if (0 != result){
     fprintf(stderr, "Failed to join consumer thread: %s\n", strerror(result));
@@ -205,7 +213,6 @@ void *producer_routine(void *arg) {
   }
 
   printf("DEBUG: %lu EXIT\n", pthread_self());
-  // TODO all these threads should pthread_exit with end arguments to exit, not just return with an arg. 
   pthread_exit((void*) 0);
 
 }
@@ -222,34 +229,26 @@ void *consumer_routine(void *arg) {
   /* terminate the loop only when there are no more items in the queue
    * AND the producer threads are all done */
 
-  // I believe there's no reason for the consumer to take out the prod lock thread
-
   pthread_mutex_lock(&queue_p->lock);
-  // wait until there's something in the queue and then
-  // wake up, it will get the queue lock next
   pthread_mutex_lock(&g_num_prod_lock);
 
+  // BUG: "needs a conditional"
   // the gating predicate for starting to consume is a little more complicated, because we need to
   // know if there is more, but also to check to make sure the other thread didn't already 
   // eat everything
   while(queue_p->front == NULL && g_num_prod > 0){
     pthread_mutex_unlock(&g_num_prod_lock);
-    //printf("DEBUG: %lu waiting for more signal to take the lock\n", pthread_self());
     pthread_cond_wait(&more, &queue_p->lock);
     pthread_mutex_lock(&g_num_prod_lock);
   }
 
-
-  // there's a producer lock because we need to know when it's done 
-  //pthread_mutex_lock(&g_num_prod_lock);
-  //printf("DEBUG: have the number lock\n");
 
   // "rechecking the predicate" should be contingent on a wait
   while(queue_p->front != NULL || g_num_prod > 0) {
     
 
     pthread_mutex_unlock(&g_num_prod_lock);
-    // unlocking this to make sure we don't block the end of the producer thread
+
  
     if (queue_p->front != NULL) {      
       
@@ -276,21 +275,14 @@ void *consumer_routine(void *arg) {
       pthread_cond_signal(&more);
       pthread_mutex_unlock(&queue_p->lock);
 
-      //printf("DEBUG: %lu yields\n", pthread_self());
+
       sched_yield();
 
       // once it's done yielding, this thread should pick the locks back up
       // either way, need the locks back for the queue and the number of products
-
-      
-
-      //while(queue_p->front == NULL){
-      //  printf("DEBUG: %lu waiting for MORE\n", pthread_self());
-      //  pthread_cond_wait(&more, &queue_p->lock);
-      //}
-
     }
-
+    // locks need to be picked back up at the end here regardless of wait
+    // if it already has this lock, the queue lock is a NOP
     pthread_mutex_lock(&queue_p->lock);
     pthread_mutex_lock(&g_num_prod_lock);
 
@@ -301,9 +293,6 @@ void *consumer_routine(void *arg) {
 
   pthread_cond_signal(&more);
   pthread_mutex_unlock(&queue_p->lock);
-  // signal any thread waiting for more to wake up and find
-  // that there isn't anything left to consume
-
 
   printf("DEBUG: %lu EXIT\n", pthread_self());
   pthread_exit((void*) count);
