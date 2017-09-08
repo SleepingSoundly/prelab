@@ -1,4 +1,8 @@
 # test.sh
+
+trap 'echo "Segmentation Fault" > ${testdir}/${i}' SIGSEGV 
+
+
 testdir=$(echo testdir$(date -Iminutes))
 mkdir ${testdir}
 
